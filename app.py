@@ -1,12 +1,19 @@
 from flask import Flask, request, jsonify, abort
-from db_config import DB_CONFIG
-from models import db, CellData
+from .db_config import DB_CONFIG
+from .model import user, CellData
 from sqlalchemy import func, select
 from datetime import datetime
 from flask_cors import CORS
 from dotenv import load_dotenv
 import os
 import jwt
+from flask_sqlalchemy import SQLAlchemy
+from flask_marshmallow import Marshmallow
+from flask_bcrypt import Bcrypt
+
+db = SQLAlchemy()
+ma = Marshmallow()
+bcrypt = Bcrypt()
 
 app = Flask(__name__)
 
@@ -18,7 +25,7 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 app.config['SQLALCHEMY_DATABASE_URI'] = DB_CONFIG
 app.config["SECRET_KEY"]= SECRET_KEY
 
-from .extension import db, ma, bcrypt
+# from .extension import db, ma, bcrypt
 db.init_app(app)
 ma.init_app(app)
 bcrypt.init_app(app)
