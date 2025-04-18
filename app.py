@@ -1,14 +1,100 @@
-from flask import Flask, request, jsonify
-from config import SQLALCHEMY_DATABASE_URI, SQLALCHEMY_TRACK_MODIFICATIONS
+from flask import Flask, request, jsonify, abort
+from db_config import DB_CONFIG
 from models import db, CellData
-from sqlalchemy import func
+from sqlalchemy import func, select
 from datetime import datetime
+from flask_cors import CORS
+from dotenv import load_dotenv
+import os
+import jwt
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = SQLALCHEMY_DATABASE_URI
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = SQLALCHEMY_TRACK_MODIFICATIONS
 
+load_dotenv()
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD= os.getenv("DB_PASSWORD")
+SECRET_KEY = os.getenv("SECRET_KEY")
+
+app.config['SQLALCHEMY_DATABASE_URI'] = DB_CONFIG
+app.config["SECRET_KEY"]= SECRET_KEY
+
+from .extension import db, ma, bcrypt
 db.init_app(app)
+ma.init_app(app)
+bcrypt.init_app(app)
+
+CORS(app)
+
+from .model.user import User, user_schema
+def create_token(user_id):
+    payload = {
+    'exp': datetime.datetime.utcnow() + datetime.timedelta(days=4),
+    'iat': datetime.datetime.utcnow(),
+    'sub': str(user_id)
+    }
+    return jwt.encode(
+    payload,
+    SECRET_KEY,
+    algorithm='HS256'
+)
+
+def extract_auth_token(authenticated_request):
+    auth_header = authenticated_request.headers.get('Authorization')
+    if auth_header:
+        return auth_header.split(" ")[1]
+    else:
+        return None
+    
+def decode_token(token):
+    payload = jwt.decode(token, SECRET_KEY, 'HS256')
+    return payload['sub']
+
+@app.route('/user', methods=['POST'])
+def new_user():
+
+    if not request.is_json:
+        return jsonify({"error": "Request must be JSON"}), 415
+    
+    user_name= request.json.get("user_name")
+    password= request.json.get("password")
+
+    if not user_name or not password:
+        return jsonify({"error": "No username or no password"}),400
+    
+    old_user= User.query.filter_by(user_name=user_name).first()
+    if old_user:
+        return jsonify({"error": "this user already exist"}), 409
+
+    NEW_USER = User(user_name = user_name, password = password)
+
+    db.session.add(NEW_USER)
+    db.session.commit()
+
+    return jsonify(user_schema.dump(NEW_USER)),201
+
+@app.route('/authentication', methods=['POST'])
+def authentication():
+
+    if not request.is_json:
+        return jsonify({"error": "Request must be JSON"}), 415
+    
+    user_name= request.json.get("user_name")
+    password= request.json.get("password")
+
+    if not user_name or not password:
+        abort(400)
+
+    user = db.session.execute(select(User).filter(User.user_name==user_name)).scalar_one_or_none()
+
+    if not user:
+        abort(403)
+    
+    if not bcrypt.check_password_hash(user.hashed_password, password):
+        abort(403)
+    
+    token= create_token(user.id)
+
+    return jsonify({"token": token})
 
 # ------------------- Submit Endpoint -------------------
 @app.route('/submit', methods=['POST'])
