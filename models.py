@@ -6,7 +6,7 @@ class CellData(db.Model):
     __tablename__ = 'cell_data'
 
     id = db.Column(db.Integer, primary_key=True)
-    timestamp = db.Column(db.String, nullable=False)
+    timestamp = db.Column(db.DateTime, nullable=False)
     operator = db.Column(db.String)
     signal_power = db.Column(db.Integer)
     snr = db.Column(db.Float)
