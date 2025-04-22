@@ -1,4 +1,4 @@
-from ..extension import db, ma, bcrypt
+from extension import db, ma, bcrypt
 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -11,5 +11,7 @@ class User(db.Model):
 
 class UserSchema(ma.Schema):
     class Meta:
-        fields = ("id", "user_name")
+        model = User
+        load_instance = True
+        #fields = ("id", "user_name")
 user_schema = UserSchema()

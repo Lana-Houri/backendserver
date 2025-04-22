@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+
+{% block title %}Operator Statistics - Network Analyzer{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0">Operator Statistics</h4>
+            </div>
+            <div class="card-body">
+                <div class="row mb-4">
+                    <div class="col-md-5">
+                        <div class="input-group">
+                            <span class="input-group-text">From</span>
+                            <input type="datetime-local" class="form-control" id="fromDate">
+                        </div>
+                    </div>
+                    <div class="col-md-5">
+                        <div class="input-group">
+                            <span class="input-group-text">To</span>
+                            <input type="datetime-local" class="form-control" id="toDate">
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <button id="fetchStats" class="btn btn-primary w-100">Fetch</button>
+                    </div>
+                </div>
+                
+                <div class="alert alert-info" id="timeRangeInfo">
+                    Please select a date range and click Fetch to view statistics.
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header bg-info text-white">
+                                <h5 class="mb-0">Operator Distribution</h5>
+                            </div>
+                            <div class="card-body">
+                                <canvas id="operatorChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header bg-success text-white">
+                                <h5 class="mb-0">Operator Statistics</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-striped">
+                                        <thead>
+                                            <tr>
+                                                <th>Operator</th>
+                                                <th>Percentage</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="operatorTableBody">
+                                            <!-- Data will be populated by JavaScript -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize chart
+        let operatorChart = null;
+        
+        // Set default date range (last 24 hours)
+        const now = new Date();
+        const yesterday = new Date(now);
+        yesterday.setDate(yesterday.getDate() - 1);
+        
+        document.getElementById('fromDate').value = formatDateForInput(yesterday);
+        document.getElementById('toDate').value = formatDateForInput(now);
+        
+        // Fetch button click handler
+        document.getElementById('fetchStats').addEventListener('click', fetchOperatorStats);
+        
+        function fetchOperatorStats() {
+            const fromDate = document.getElementById('fromDate').value;
+            const toDate = document.getElementById('toDate').value;
+            
+            if (!fromDate || !toDate) {
+                alert('Please select both From and To dates');
+                return;
+            }
+            
+            const from = formatDateForApi(fromDate);
+            const to = formatDateForApi(toDate);
+            
+            fetch(`/stats/operator?from=${from}&to=${to}`)
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('timeRangeInfo').textContent = 
+                        `Showing statistics from ${data.time_range.from} to ${data.time_range.to}`;
+                    
+                    updateOperatorChart(data.operator_stats);
+                    updateOperatorTable(data.operator_stats);
+                })
+                .catch(error => {
+                    console.error('Error fetching operator stats:', error);
+                    document.getElementById('timeRangeInfo').textContent = 
+                        'Error loading statistics. Please try again.';
+                });
+        }
+        
+        function updateOperatorChart(operatorStats) {
+            const labels = Object.keys(operatorStats);
+            const data = labels.map(label => parseFloat(operatorStats[label]));
+            
+            if (operatorChart) {
+                operatorChart.destroy();
+            }
+            
+            const ctx = document.getElementById('operatorChart').getContext('2d');
+            operatorChart = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: [
+                            '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.label}: ${context.raw}%`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        function updateOperatorTable(operatorStats) {
+            const tableBody = document.getElementById('operatorTableBody');
+            tableBody.innerHTML = '';
+            
+            Object.entries(operatorStats).forEach(([operator, percentage]) => {
+                const row = document.createElement('tr');
+                
+                const operatorCell = document.createElement('td');
+                operatorCell.textContent = operator;
+                
+                const percentageCell = document.createElement('td');
+                percentageCell.textContent = percentage;
+                
+                row.appendChild(operatorCell);
+                row.appendChild(percentageCell);
+                
+                tableBody.appendChild(row);
+            });
+        }
+        
+        function formatDateForInput(date) {
+            return date.toISOString().slice(0, 16);
+        }
+        
+        function formatDateForApi(dateString) {
+            const date = new Date(dateString);
+            return date.toISOString().replace('T', ' ').slice(0, 19);
+        }
+    });
+</script>
+{% endblock %}

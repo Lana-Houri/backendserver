@@ -1,0 +1,306 @@
+{% extends "base.html" %}
+
+{% block title %}Devices - Network Analyzer{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                <h4 class="mb-0">Connected Devices</h4>
+                <div>
+                    <select id="timeRange" class="form-select form-select-sm">
+                        <option value="24">Last 24 Hours</option>
+                        <option value="48">Last 48 Hours</option>
+                        <option value="168">Last 7 Days</option>
+                        <option value="720">Last 30 Days</option>
+                    </select>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info" id="deviceCount">
+                    Loading device information...
+                </div>
+                
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover" id="devicesTable">
+                        <thead>
+                            <tr>
+                                <th>MAC Address</th>
+                                <th>IP Address</th>
+                                <th>Last Seen</th>
+                                <th>Operator</th>
+                                <th>Network Type</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="devicesTableBody">
+                            <!-- Data will be populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Device Details Modal -->
+<div class="modal fade" id="deviceDetailsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="deviceDetailsTitle">Device Details</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <div class="input-group">
+                            <span class="input-group-text">From</span>
+                            <input type="datetime-local" class="form-control" id="deviceStatsFrom">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="input-group">
+                            <span class="input-group-text">To</span>
+                            <input type="datetime-local" class="form-control" id="deviceStatsTo">
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row mb-3">
+                    <div class="col-md-12">
+                        <button id="fetchDeviceStats" class="btn btn-primary">Fetch Statistics</button>
+                    </div>
+                </div>
+                
+                <div id="deviceStatsContent">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="card mb-3">
+                                <div class="card-header bg-info text-white">
+                                    <h5 class="mb-0">Signal Power</h5>
+                                </div>
+                                <div class="card-body">
+                                    <h3 id="deviceAvgSignal">-</h3>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card mb-3">
+                                <div class="card-header bg-success text-white">
+                                    <h5 class="mb-0">SNR</h5>
+                                </div>
+                                <div class="card-body">
+                                    <h3 id="deviceAvgSnr">-</h3>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-12">
+                            <div class="card">
+                                <div class="card-header bg-primary text-white">
+                                    <h5 class="mb-0">Network Type Distribution</h5>
+                                </div>
+                                <div class="card-body">
+                                    <canvas id="deviceNetworkTypeChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize variables
+        let deviceNetworkTypeChart = null;
+        let currentDeviceMac = null;
+        
+        // Set default date range for device stats
+        const now = new Date();
+        const yesterday = new Date(now);
+        yesterday.setDate(yesterday.getDate() - 1);
+        
+        document.getElementById('deviceStatsFrom').value = formatDateForInput(yesterday);
+        document.getElementById('deviceStatsTo').value = formatDateForInput(now);
+        
+        // Update devices when time range changes
+        document.getElementById('timeRange').addEventListener('change', loadDevices);
+        
+        // Fetch device stats button
+        document.getElementById('fetchDeviceStats').addEventListener('click', function() {
+            if (currentDeviceMac) {
+                fetchDeviceStats(currentDeviceMac);
+            }
+        });
+        
+        // Initial devices load
+        loadDevices();
+        
+        function loadDevices() {
+            const hours = document.getElementById('timeRange').value;
+            
+            fetch(`/devices/active?hours=${hours}`)
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('deviceCount').textContent = 
+                        `Found ${data.active_device_count} active devices in the last ${hours} hours`;
+                    
+                    updateDevicesTable(data.devices);
+                })
+                .catch(error => {
+                    console.error('Error fetching devices:', error);
+                    document.getElementById('deviceCount').textContent = 
+                        'Error loading devices. Please try again.';
+                });
+        }
+        
+        function updateDevicesTable(devices) {
+            const tableBody = document.getElementById('devicesTableBody');
+            tableBody.innerHTML = '';
+            
+            devices.forEach(device => {
+                const row = document.createElement('tr');
+                
+                const macCell = document.createElement('td');
+                macCell.textContent = device.device_mac;
+                
+                const ipCell = document.createElement('td');
+                ipCell.textContent = device.device_ip;
+                
+                const lastSeenCell = document.createElement('td');
+                lastSeenCell.textContent = device.last_seen;
+                
+                const operatorCell = document.createElement('td');
+                operatorCell.textContent = device.current_operator || 'N/A';
+                
+                const networkTypeCell = document.createElement('td');
+                networkTypeCell.textContent = device.current_network_type || 'N/A';
+                
+                const actionsCell = document.createElement('td');
+                const viewButton = document.createElement('button');
+                viewButton.className = 'btn btn-sm btn-primary';
+                viewButton.textContent = 'View Stats';
+                viewButton.addEventListener('click', function() {
+                    showDeviceDetails(device.device_mac);
+                });
+                actionsCell.appendChild(viewButton);
+                
+                row.appendChild(macCell);
+                row.appendChild(ipCell);
+                row.appendChild(lastSeenCell);
+                row.appendChild(operatorCell);
+                row.appendChild(networkTypeCell);
+                row.appendChild(actionsCell);
+                
+                tableBody.appendChild(row);
+            });
+        }
+        
+        function showDeviceDetails(mac) {
+            currentDeviceMac = mac;
+            document.getElementById('deviceDetailsTitle').textContent = `Device Details: ${mac}`;
+            
+            // Reset previous data
+            document.getElementById('deviceAvgSignal').textContent = '-';
+            document.getElementById('deviceAvgSnr').textContent = '-';
+            
+            if (deviceNetworkTypeChart) {
+                deviceNetworkTypeChart.destroy();
+                deviceNetworkTypeChart = null;
+            }
+            
+            // Show modal
+            const modal = new bootstrap.Modal(document.getElementById('deviceDetailsModal'));
+            modal.show();
+            
+            // Fetch device stats
+            fetchDeviceStats(mac);
+        }
+        
+        function fetchDeviceStats(mac) {
+            const fromDate = document.getElementById('deviceStatsFrom').value;
+            const toDate = document.getElementById('deviceStatsTo').value;
+            
+            if (!fromDate || !toDate) {
+                alert('Please select both From and To dates');
+                return;
+            }
+            
+            const from = formatDateForApi(fromDate);
+            const to = formatDateForApi(toDate);
+            
+            fetch(`/stats/device?mac=${mac}&from=${from}&to=${to}`)
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('deviceAvgSignal').textContent = data.average_signal_power;
+                    document.getElementById('deviceAvgSnr').textContent = data.average_snr;
+                    
+                    updateDeviceNetworkTypeChart(data.network_type_distribution);
+                })
+                .catch(error => {
+                    console.error('Error fetching device stats:', error);
+                    alert('Error fetching device statistics. Please try again.');
+                });
+        }
+        
+        function updateDeviceNetworkTypeChart(networkDistribution) {
+            const labels = Object.keys(networkDistribution);
+            const data = labels.map(label => parseFloat(networkDistribution[label]));
+            
+            if (deviceNetworkTypeChart) {
+                deviceNetworkTypeChart.destroy();
+            }
+            
+            const ctx = document.getElementById('deviceNetworkTypeChart').getContext('2d');
+            deviceNetworkTypeChart = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: [
+                            '#4BC0C0', '#FF6384', '#36A2EB', '#FFCE56', '#9966FF'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.label}: ${context.raw}%`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        function formatDateForInput(date) {
+            return date.toISOString().slice(0, 16);
+        }
+        
+        function formatDateForApi(dateString) {
+            const date = new Date(dateString);
+            return date.toISOString().replace('T', ' ').slice(0, 19);
+        }
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,276 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Network Analyzer{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                <h4 class="mb-0">Network Statistics Dashboard</h4>
+                <div>
+                    <select id="timeRange" class="form-select form-select-sm">
+                        <option value="24">Last 24 Hours</option>
+                        <option value="48">Last 48 Hours</option>
+                        <option value="168">Last 7 Days</option>
+                        <option value="720">Last 30 Days</option>
+                    </select>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="time-range mb-3" id="timeRangeDisplay"></div>
+                
+                <div class="row">
+                    <div class="col-md-6 col-lg-3 mb-4">
+                        <div class="card h-100 border-primary">
+                            <div class="card-body text-center">
+                                <h5 class="card-title text-primary">Total Records</h5>
+                                <h2 id="totalRecords" class="display-4">-</h2>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6 col-lg-3 mb-4">
+                        <div class="card h-100 border-success">
+                            <div class="card-body text-center">
+                                <h5 class="card-title text-success">Active Devices</h5>
+                                <h2 id="activeDevices" class="display-4">-</h2>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6 col-lg-3 mb-4">
+                        <div class="card h-100 border-info">
+                            <div class="card-body text-center">
+                                <h5 class="card-title text-info">Operators</h5>
+                                <h2 id="operatorCount" class="display-4">-</h2>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6 col-lg-3 mb-4">
+                        <div class="card h-100 border-warning">
+                            <div class="card-body text-center">
+                                <h5 class="card-title text-warning">Network Types</h5>
+                                <h2 id="networkTypeCount" class="display-4">-</h2>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row mt-4">
+                    <div class="col-md-6 mb-4">
+                        <div class="card h-100">
+                            <div class="card-header bg-primary text-white">
+                                <h5 class="mb-0">Operator Distribution</h5>
+                            </div>
+                            <div class="card-body">
+                                <canvas id="operatorChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6 mb-4">
+                        <div class="card h-100">
+                            <div class="card-header bg-success text-white">
+                                <h5 class="mb-0">Network Type Distribution</h5>
+                            </div>
+                            <div class="card-body">
+                                <canvas id="networkTypeChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-12">
+                        <div class="card">
+                            <div class="card-header bg-info text-white">
+                                <h5 class="mb-0">Recent Active Devices</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-striped table-hover">
+                                        <thead>
+                                            <tr>
+                                                <th>MAC Address</th>
+                                                <th>IP Address</th>
+                                                <th>Last Seen</th>
+                                                <th>Operator</th>
+                                                <th>Network Type</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="devicesTableBody">
+                                            <!-- Data will be populated by JavaScript -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div class="text-center mt-3">
+                                    <a href="{{ url_for('devices_ui') }}" class="btn btn-outline-primary">View All Devices</a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize charts
+        let operatorChart = null;
+        let networkTypeChart = null;
+        
+        // Update dashboard when time range changes
+        document.getElementById('timeRange').addEventListener('change', updateDashboard);
+        
+        // Initial dashboard update
+        updateDashboard();
+        
+        function updateDashboard() {
+            const hours = document.getElementById('timeRange').value;
+            
+            // Fetch dashboard data
+            fetch(`/dashboard?hours=${hours}`)
+                .then(response => response.json())
+                .then(data => {
+                    // Update time range display
+                    document.getElementById('timeRangeDisplay').textContent = 
+                        `From: ${data.time_range.from} To: ${data.time_range.to}`;
+                    
+                    // Update stats
+                    document.getElementById('totalRecords').textContent = data.total_records;
+                    document.getElementById('activeDevices').textContent = data.active_devices_count;
+                    document.getElementById('operatorCount').textContent = Object.keys(data.operator_stats).length;
+                    document.getElementById('networkTypeCount').textContent = Object.keys(data.network_type_stats).length;
+                    
+                    // Update operator chart
+                    updateOperatorChart(data.operator_stats);
+                    
+                    // Update network type chart
+                    updateNetworkTypeChart(data.network_type_stats);
+                    
+                    // Fetch active devices
+                    fetch(`/devices/active?hours=${hours}`)
+                        .then(response => response.json())
+                        .then(deviceData => {
+                            updateDevicesTable(deviceData.devices);
+                        })
+                        .catch(error => console.error('Error fetching devices data:', error));
+                })
+                .catch(error => console.error('Error fetching dashboard data:', error));
+        }
+        
+        function updateOperatorChart(operatorStats) {
+            const labels = Object.keys(operatorStats);
+            const data = labels.map(label => operatorStats[label].percentage);
+            
+            if (operatorChart) {
+                operatorChart.destroy();
+            }
+            
+            const ctx = document.getElementById('operatorChart').getContext('2d');
+            operatorChart = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: [
+                            '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.label}: ${context.raw}%`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        function updateNetworkTypeChart(networkTypeStats) {
+            const labels = Object.keys(networkTypeStats);
+            const data = labels.map(label => networkTypeStats[label].percentage);
+            
+            if (networkTypeChart) {
+                networkTypeChart.destroy();
+            }
+            
+            const ctx = document.getElementById('networkTypeChart').getContext('2d');
+            networkTypeChart = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: [
+                            '#4BC0C0', '#FF6384', '#36A2EB', '#FFCE56', '#9966FF'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.label}: ${context.raw}%`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        function updateDevicesTable(devices) {
+            const tableBody = document.getElementById('devicesTableBody');
+            tableBody.innerHTML = '';
+            
+            // Show only the first 5 devices
+            const displayDevices = devices.slice(0, 5);
+            
+            displayDevices.forEach(device => {
+                const row = document.createElement('tr');
+                
+                const macCell = document.createElement('td');
+                macCell.textContent = device.device_mac;
+                
+                const ipCell = document.createElement('td');
+                ipCell.textContent = device.device_ip;
+                
+                const lastSeenCell = document.createElement('td');
+                lastSeenCell.textContent = device.last_seen;
+                
+                const operatorCell = document.createElement('td');
+                operatorCell.textContent = device.current_operator || 'N/A';
+                
+                const networkTypeCell = document.createElement('td');
+                networkTypeCell.textContent = device.current_network_type || 'N/A';
+                
+                row.appendChild(macCell);
+                row.appendChild(ipCell);
+                row.appendChild(lastSeenCell);
+                row.appendChild(operatorCell);
+                row.appendChild(networkTypeCell);
+                
+                tableBody.appendChild(row);
+            });
+        }
+    });
+</script>
+{% endblock %}

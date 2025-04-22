@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+
+{% block title %}SNR Statistics - Network Analyzer{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0">SNR Statistics</h4>
+            </div>
+            <div class="card-body">
+                <div class="row mb-4">
+                    <div class="col-md-5">
+                        <div class="input-group">
+                            <span class="input-group-text">From</span>
+                            <input type="datetime-local" class="form-control" id="fromDate">
+                        </div>
+                    </div>
+                    <div class="col-md-5">
+                        <div class="input-group">
+                            <span class="input-group-text">To</span>
+                            <input type="datetime-local" class="form-control" id="toDate">
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <button id="fetchStats" class="btn btn-primary w-100">Fetch</button>
+                    </div>
+                </div>
+                
+                <div class="alert alert-info" id="timeRangeInfo">
+                    Please select a date range and click Fetch to view statistics.
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header bg-info text-white">
+                                <h5 class="mb-0">Average SNR by Network Type</h5>
+                            </div>
+                            <div class="card-body">
+                                <canvas id="snrChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header bg-success text-white">
+                                <h5 class="mb-0">SNR Statistics</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-striped">
+                                        <thead>
+                                            <tr>
+                                                <th>Network Type</th>
+                                                <th>Average SNR</th>
+                                                <th>Record Count</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="snrTableBody">
+                                            <!-- Data will be populated by JavaScript -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize chart
+        let snrChart = null;
+        
+        // Set default date range (last 24 hours)
+        const now = new Date();
+        const yesterday = new Date(now);
+        yesterday.setDate(yesterday.getDate() - 1);
+        
+        document.getElementById('fromDate').value = formatDateForInput(yesterday);
+        document.getElementById('toDate').value = formatDateForInput(now);
+        
+        // Fetch button click handler
+        document.getElementById('fetchStats').addEventListener('click', fetchSnrStats);
+        
+        function fetchSnrStats() {
+            const fromDate = document.getElementById('fromDate').value;
+            const toDate = document.getElementById('toDate').value;
+            
+            if (!fromDate || !toDate) {
+                alert('Please select both From and To dates');
+                return;
+            }
+            
+            const from = formatDateForApi(fromDate);
+            const to = formatDateForApi(toDate);
+            
+            fetch(`/stats/snr?from=${from}&to=${to}`)
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('timeRangeInfo').textContent = 
+                        `Showing statistics from ${data.time_range.from} to ${data.time_range.to}`;
+                    
+                    updateSnrChart(data.snr_stats);
+                    updateSnrTable(data.snr_stats);
+                })
+                .catch(error => {
+                    console.error('Error fetching SNR stats:', error);
+                    document.getElementById('timeRangeInfo').textContent = 
+                        'Error loading statistics. Please try again.';
+                });
+        }
+        
+        function updateSnrChart(snrStats) {
+            const labels = Object.keys(snrStats);
+            const data = labels.map(label => {
+                const snrStr = snrStats[label].average_snr;
+                return parseFloat(snrStr.replace(' dB', ''));
+            });
+            
+            if (snrChart) {
+                snrChart.destroy();
+            }
+            
+            const ctx = document.getElementById('snrChart').getContext('2d');
+            snrChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Average SNR (dB)',
+                        data: data,
+                        backgroundColor: [
+                            '#4BC0C0', '#FF6384', '#36A2EB', '#FFCE56', '#9966FF'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'SNR (dB)'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Network Type'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        function updateSnrTable(snrStats) {
+            const tableBody = document.getElementById('snrTableBody');
+            tableBody.innerHTML = '';
+            
+            Object.entries(snrStats).forEach(([networkType, stats]) => {
+                const row = document.createElement('tr');
+                
+                const networkTypeCell = document.createElement('td');
+                networkTypeCell.textContent = networkType;
+                
+                const snrCell = document.createElement('td');
+                snrCell.textContent = stats.average_snr;
+                
+                const countCell = document.createElement('td');
+                countCell.textContent = stats.record_count;
+                
+                row.appendChild(networkTypeCell);
+                row.appendChild(snrCell);
+                row.appendChild(countCell);
+                
+                tableBody.appendChild(row);
+            });
+        }
+        
+        function formatDateForInput(date) {
+            return date.toISOString().slice(0, 16);
+        }
+        
+        function formatDateForApi(dateString) {
+            const date = new Date(dateString);
+            return date.toISOString().replace('T', ' ').slice(0, 19);
+        }
+    });
+</script>
+{% endblock %}

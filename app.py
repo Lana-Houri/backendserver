@@ -1,7 +1,7 @@
-from flask import Flask, request, jsonify, abort
-from .db_config import DB_CONFIG
-from .model.user import User
-from .models import CellData 
+from flask import Flask, request, jsonify, abort, render_template, redirect, url_for, session, flash
+from db_config import DB_CONFIG
+from model.user import User, user_schema
+from models import CellData 
 from sqlalchemy import func, select
 from datetime import datetime, timedelta, timezone
 from flask_cors import CORS
@@ -11,6 +11,11 @@ import jwt
 from flask_sqlalchemy import SQLAlchemy
 from flask_marshmallow import Marshmallow
 from flask_bcrypt import Bcrypt
+
+from dotenv import load_dotenv
+load_dotenv()
+print("DB_USER:", os.getenv("DB_USER"))
+print("DB_PASSWORD:", os.getenv("DB_PASSWORD"))
 
 db = SQLAlchemy()
 ma = Marshmallow()
@@ -23,8 +28,14 @@ DB_USER = os.getenv("DB_USER")
 DB_PASSWORD= os.getenv("DB_PASSWORD")
 SECRET_KEY = os.getenv("SECRET_KEY")
 
+print("FINAL DB_CONFIG =", DB_CONFIG)
+#print("SQLALCHEMY_DATABASE_URI =", app.config['SQLALCHEMY_DATABASE_URI'])
 app.config['SQLALCHEMY_DATABASE_URI'] = DB_CONFIG
 app.config["SECRET_KEY"]= SECRET_KEY
+
+# Add session configuration
+app.config['SESSION_TYPE'] = 'filesystem'
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
 
 # from .extension import db, ma, bcrypt
 db.init_app(app)
@@ -33,7 +44,6 @@ bcrypt.init_app(app)
 
 CORS(app)
 
-from .model.user import User, user_schema
 def create_token(user_id):
     payload = {
     'exp': datetime.now(timezone.utc) + datetime.timedelta(days=4),
@@ -191,8 +201,6 @@ def parse_time_range(request):
             "error": "Invalid datetime format. Use YYYY-MM-DD HH:MM:SS"
         }), 400)
 
-# Calculates the percentage of connection time per mobile operator (e.g., Touch, Alfa) between two user-specified timestamps (from and to).
-@app.route('/stats/operator', methods=['GET'])
 # Calculates the percentage of connection time per mobile operator (e.g., Touch, Alfa) between two user-specified timestamps (from and to).
 @app.route('/stats/operator', methods=['GET'])
 def operator_stats():
@@ -515,9 +523,102 @@ def dashboard():
     }), 200
     
 # ------------------- Root Endpoint -------------------
+
+# Web Interface Routes
+from flask import render_template, redirect, url_for, session, flash
+
+# Login page
+@app.route('/login', methods=['GET', 'POST'])
+def login_ui():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        if not username or not password:
+            flash('Please provide both username and password', 'danger')
+            return render_template('login.html')
+        
+        user = db.session.execute(select(User).filter(User.user_name==username)).scalar_one_or_none()
+        
+        if not user or not bcrypt.check_password_hash(user.hashed_password, password):
+            flash('Invalid username or password', 'danger')
+            return render_template('login.html')
+        
+        session['user_id'] = user.id
+        session['user_name'] = user.user_name
+        flash('Login successful', 'success')
+        return redirect(url_for('dashboard_ui'))
+    
+    return render_template('login.html')
+
+# Logout
+@app.route('/logout')
+def logout():
+    session.clear()
+    flash('You have been logged out', 'info')
+    return redirect(url_for('login_ui'))
+
+# Dashboard page
+@app.route('/dashboard-ui')
+def dashboard_ui():
+    if not session.get('user_id'):
+        flash('Please login to access the dashboard', 'warning')
+        return redirect(url_for('login_ui'))
+    
+    return render_template('dashboard.html')
+
+# Devices page
+@app.route('/devices-ui')
+def devices_ui():
+    if not session.get('user_id'):
+        flash('Please login to access this page', 'warning')
+        return redirect(url_for('login_ui'))
+    
+    return render_template('devices.html')
+
+# Operator stats page
+@app.route('/operator-stats')
+def operator_stats_ui():
+    if not session.get('user_id'):
+        flash('Please login to access this page', 'warning')
+        return redirect(url_for('login_ui'))
+    
+    return render_template('operator_stats.html')
+
+# Network type stats page
+@app.route('/network-stats')
+def network_stats_ui():
+    if not session.get('user_id'):
+        flash('Please login to access this page', 'warning')
+        return redirect(url_for('login_ui'))
+    
+    return render_template('network_stats.html')
+
+# Signal power stats page
+@app.route('/signal-stats')
+def signal_stats_ui():
+    if not session.get('user_id'):
+        flash('Please login to access this page', 'warning')
+        return redirect(url_for('login_ui'))
+    
+    return render_template('signal_stats.html')
+
+# SNR stats page
+@app.route('/snr-stats')
+def snr_stats_ui():
+    if not session.get('user_id'):
+        flash('Please login to access this page', 'warning')
+        return redirect(url_for('login_ui'))
+    
+    return render_template('snr_stats.html')
+
+# Redirect root to dashboard or login
 @app.route('/')
 def home():
-    return "Network Analyzer Server is running."
+    if session.get('user_id'):
+        return redirect(url_for('dashboard_ui'))
+    else:
+        return redirect(url_for('login_ui'))
 
 # ------------------- Run Server -------------------
 if __name__ == '__main__':
